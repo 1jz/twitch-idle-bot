@@ -1,0 +1,22 @@
+{
+	"user": "",
+	"token": "",
+	"channels": [
+		"shroud", "commanderroot"
+	],
+	"start_delay": 2000,
+	"client_id": "",
+	"client_secret": "",
+	"app_token": {
+		"access_token": "",
+		"expires_in": 0,
+		"token_type": "",
+		"issued": 0
+	},
+	"log_level": 2,
+	"join_interval": 3000,
+	"viewers_min": 0,
+	"viewers_max": 100000,
+	"receive_data": true,
+	"join_all_live_channels": true
+}
