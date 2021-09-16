@@ -1,16 +1,17 @@
 package main
 
 import (
-	"chat-idle/apic"
-	"chat-idle/irc"
-	"chat-idle/utils"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
 	"os/signal"
 	"sync"
-	"time"
+	"twitch-idle/clientmanager"
+	"twitch-idle/utils"
+
+	"github.com/asaskevich/EventBus"
 )
 
 // Socket connection consts
@@ -22,49 +23,31 @@ const (
 func main() {
 	var wg sync.WaitGroup
 	config := loadConfig()
+	go captureTerm(&config)
 
-	var bot *irc.IRClient = irc.Create(&config)
-	go captureTerm(bot, &config)
+	bus := EventBus.New()
 
-	if config.LogLevel >= 1 {
-		log.Printf("Joining %d channels as %s...\n", len(config.Channels), config.User)
-		log.Printf("Starting in %d Milliseconds...\n", config.StartDelay)
-		log.Printf("App Token expires: %s", time.Unix(config.AppToken.Issued+config.AppToken.ExpiresIn, 0))
+	botManager := clientmanager.Setup(&bus, &config, HOST, PORT)
+	err := bus.Subscribe("manager:joined_channel", botManager.JoinedChannel)
+	if err != nil {
+		fmt.Println(err)
 	}
-
-	time.Sleep(time.Second * time.Duration(config.StartDelay/1000))
-
-	bot.Connect(HOST, PORT)
-
-	apic.QueueChannels(&config)
-	if config.JoinAllLiveChannels {
-		go apic.ScanChannels(&config, bot)
-		go apic.JoinChannels(&config, bot)
-	} else {
-		go apic.JoinQueuedChannels(&config, bot)
-	}
-
-	if !config.ReceiveData {
-		go func() {
-			for {
-				time.Sleep(time.Minute * 5)
-				bot.Pong()
-			}
-		}()
-	}
+	bus.Subscribe("manager:received_data", botManager.ReceivedData)
+	botManager.Start()
 
 	wg.Add(1)
 	wg.Wait()
 }
 
-func captureTerm(ircClient *irc.IRClient, config *utils.Config) {
+// config loading/saving stuff
+func captureTerm(config *utils.Config) {
 	sig := make(chan os.Signal)
 	signal.Notify(sig, os.Interrupt)
 	<-sig
 
+	fmt.Println()
 	log.Println("Program killed!")
 	saveConfig(*config)
-	ircClient.Disconnect()
 	os.Exit(0)
 }
 

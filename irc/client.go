@@ -2,7 +2,6 @@ package irc
 
 import (
 	"bufio"
-	"chat-idle/utils"
 	"fmt"
 	"log"
 	"net"
@@ -10,50 +9,56 @@ import (
 	"os"
 	"strings"
 	"time"
+	"twitch-idle/utils"
+
+	"github.com/asaskevich/EventBus"
+	"github.com/paulbellamy/ratecounter"
 )
 
-// IRClient connection struct
-type IRClient struct {
+// Client connection struct
+type Client struct {
 	Conn           *net.Conn
-	joinedChannels map[string]bool
 	config         *utils.Config
-	monitoring     bool
+	bus            *EventBus.Bus
+	JoinedChannels map[string]bool
+	Connected      bool
+	SecCounter     *ratecounter.RateCounter
+	MinCounter     *ratecounter.RateCounter
+	InstanceID     int
 }
 
-// Create creates a IRClient instance
-func Create(config *utils.Config) *IRClient {
-	var irc *IRClient = &IRClient{
+// Create creates a Client instance
+func Create(conf *utils.Config, bus *EventBus.Bus, ID int) *Client {
+	var irc *Client = &Client{
 		Conn:           nil,
-		joinedChannels: nil,
-		config:         config,
-		monitoring:     true,
+		config:         conf,
+		bus:            bus,
+		JoinedChannels: make(map[string]bool),
+		Connected:      false,
+		SecCounter:     ratecounter.NewRateCounter(1 * time.Second),
+		MinCounter:     ratecounter.NewRateCounter(1 * time.Minute),
+		InstanceID:     ID,
 	}
-	(*irc).init()
 	return irc
 }
 
 // Connect connects to server
-func (irc *IRClient) Connect(host string, port string) {
+func (irc *Client) Connect(host string, port string) {
 	log.Println("Connecting to " + host + ":" + port)
 	con, err := net.Dial("tcp", host+":"+port)
 	if err != nil {
 		log.Println("Error:", err.Error())
 		os.Exit(1)
 	}
-
 	irc.Conn = &con
+	go irc.receiveData()
 	irc.login(*irc.config)
-
-	if irc.config.ReceiveData {
-		go irc.receiveData()
-	}
 
 	time.Sleep(2 * time.Second)
 }
 
 // Disconnect disconnects from server
-func (irc *IRClient) Disconnect() {
-	irc.monitoring = false
+func (irc *Client) Disconnect() {
 	time.Sleep(time.Millisecond * 200)
 	if irc.Conn != nil {
 		log.Println("Disconnecting...")
@@ -62,7 +67,7 @@ func (irc *IRClient) Disconnect() {
 }
 
 // Login sends username and oauth2 authentication to server
-func (irc *IRClient) login(config utils.Config) {
+func (irc *Client) login(config utils.Config) {
 	passCmd := CmdPass + " " + config.Token + "\r\n"
 	userCmd := CmdUser + " " + config.User + "\r\n"
 	nickCmd := CmdNick + " " + config.User + "\r\n"
@@ -70,12 +75,8 @@ func (irc *IRClient) login(config utils.Config) {
 }
 
 // Join sends a join command to a user's channel
-func (irc *IRClient) Join(user string) {
+func (irc *Client) Join(user string) {
 	joinCmd := CmdJoin + " #" + user + "\r\n"
-
-	if !irc.config.ReceiveData {
-		irc.joinedChannels[user] = true
-	}
 
 	if irc.config.LogLevel >= 2 {
 		log.Printf("<- %s", joinCmd)
@@ -84,7 +85,7 @@ func (irc *IRClient) Join(user string) {
 }
 
 // Pong replies to pings with pong
-func (irc *IRClient) Pong() {
+func (irc *Client) Pong() {
 	pongCmd := CmdPong + " :tmi.twitch.tv\r\n"
 	if irc.config.LogLevel >= 1 {
 		log.Printf("<- %s", pongCmd)
@@ -93,29 +94,23 @@ func (irc *IRClient) Pong() {
 }
 
 // send data.
-func (irc *IRClient) sendData(message string) {
+func (irc *Client) sendData(message string) {
 	fmt.Fprintf(*irc.Conn, "%s\r\n", message)
 }
 
 // print all incoming data
-func (irc *IRClient) receiveData() {
-
-	if irc.config.LogLevel >= 1 {
-		log.Println("Tracking incoming data...")
-	}
-
+func (irc *Client) receiveData() {
 	tp := textproto.NewReader(bufio.NewReader(*irc.Conn))
-
 	for {
 		message, err := tp.ReadLine()
 		if err != nil {
-			if !irc.monitoring {
-				panic(err)
-			}
-			return
+			continue
 		}
+
+		(*irc.bus).Publish("manager:received_data", irc)
+
 		if strings.HasPrefix(message, CmdPing) {
-			if irc.config.LogLevel >= 2 {
+			if irc.config.LogLevel >= 1 {
 				log.Printf("-> %s\n", message)
 			}
 			irc.Pong()
@@ -125,15 +120,19 @@ func (irc *IRClient) receiveData() {
 
 		if irc.config.LogLevel >= 3 {
 			log.Println(message)
-		} else if len(splitMessage) > 2 {
+		}
+
+		if len(splitMessage) > 2 {
 			switch splitMessage[1] {
+			case RplWelcome:
+				log.Println("Connected")
+				irc.Connected = true
 			case CmdJoin:
 				if irc.config.LogLevel >= 2 {
 					log.Println("->", splitMessage[1], splitMessage[2])
 				}
-				if irc.config.ReceiveData {
-					irc.joinedChannels[splitMessage[2][1:]] = true
-				}
+				(*irc.bus).Publish("manager:joined_channel", splitMessage[2][1:])
+				irc.JoinedChannels[splitMessage[2][1:]] = true
 			case CmdPrivmsg:
 				if irc.config.LogLevel >= 2 && strings.Contains(splitMessage[3], irc.config.User) {
 					log.Println("->", splitMessage[0], splitMessage[2], splitMessage[3])
@@ -141,15 +140,4 @@ func (irc *IRClient) receiveData() {
 			}
 		}
 	}
-}
-
-// InChannel returns if bot has joined specified channel
-func (irc *IRClient) InChannel(channel string) bool {
-	_, exists := irc.joinedChannels[channel]
-	return exists
-}
-
-// init initializes stuff
-func (irc *IRClient) init() {
-	irc.joinedChannels = make(map[string]bool)
 }

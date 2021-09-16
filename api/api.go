@@ -1,12 +1,12 @@
 package api
 
 import (
-	"chat-idle/utils"
 	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"time"
+	"twitch-idle/utils"
 )
 
 var client = &http.Client{}

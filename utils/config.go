@@ -19,7 +19,6 @@ type Config struct {
 	JoinInterval        int      `json:"join_interval"`
 	ViewersMin          int      `json:"viewers_min"`
 	ViewersMax          int      `json:"viewers_max"`
-	ReceiveData         bool     `json:"receive_data"`
 	JoinAllLiveChannels bool     `json:"join_all_live_channels"`
 }
 

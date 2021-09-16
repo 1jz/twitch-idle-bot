@@ -2,18 +2,18 @@ package irc
 
 // IRC Reply Code consts
 const (
-	RplWelcome  int = 001
-	RplYourhost int = 002
-	RplCreated  int = 003
-	RplMyInfo   int = 004
-	RplBounce   int = 005
+	RplWelcome  string = "001"
+	RplYourhost string = "002"
+	RplCreated  string = "003"
+	RplMyInfo   string = "004"
+	RplBounce   string = "005"
 
-	RplNamReply   int = 353
-	RplEndOfNames int = 366
+	RplNamReply   string = "353"
+	RplEndOfNames string = "366"
 
-	RplMOTDStart int = 375
-	RplMOTD      int = 372
-	RplEndOfMOTD int = 376
+	RplMOTDStart string = "375"
+	RplMOTD      string = "372"
+	RplEndOfMOTD string = "376"
 )
 
 // IRC Command consts
