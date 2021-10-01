@@ -1,5 +1,5 @@
 # twitch-idle-bot
-idle in all (or some) live twitch channels written in pure Go
+idle in all (or some) live twitch channels written in Go
 
 This twitch bot idles in channels. It never says anything it just sits there. Menacingly.
 
